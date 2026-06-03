@@ -1,2 +1,6 @@
+# Your filled-in config — copied from butane.example.yaml and edited with your
+# SSH key, Traceway token, and repo/tag. Never commit it.
+butane.yaml
+
 # Compiled output — never commit this; it may contain your SSH key and token
 ignition.json

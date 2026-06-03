@@ -34,7 +34,8 @@ Raspberry Pi 4 (first boot via Ignition)
 ├── INSTALL.md                       # full SD-card install walkthrough
 ├── .github/workflows/build.yml      # builds + publishes the sysext on tag push
 ├── cfg/
-│   └── butane.yaml                  # the single config: SSH key, token, agent + docker-compose sysext
+│   ├── butane.example.yaml          # committed template — copy to butane.yaml and edit
+│   └── butane.yaml                  # your config (gitignored): SSH key, token, agent + docker-compose sysext
 └── flatcar-install/                 # holds the fetched flatcar-install script (gitignored)
 ```
 
@@ -55,9 +56,16 @@ git push origin v0.5.0
 GitHub Actions builds `traceway-otel-agent-arm64.raw` (the image the Pi uses) and
 publishes it under **Releases → v0.5.0**.
 
-### 3. Edit `cfg/butane.yaml`
+### 3. Create and edit your config
 
-Fill in the placeholders (all marked `CONFIGURE` in the file):
+The committed `cfg/butane.example.yaml` is a template. Copy it to `cfg/butane.yaml`
+(which is gitignored, so your secrets never get committed):
+
+```bash
+cp cfg/butane.example.yaml cfg/butane.yaml
+```
+
+Then fill in the placeholders in `cfg/butane.yaml` (all marked `CONFIGURE` in the file):
 
 | Placeholder | What to put |
 |---|---|

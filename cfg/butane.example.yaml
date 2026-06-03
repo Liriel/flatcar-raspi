@@ -3,10 +3,12 @@ version: 1.0.0
 
 # ── Traceway OTel Agent on Flatcar / Raspberry Pi 4 ─────────────────────────
 #
-# Edit the three sections marked CONFIGURE before running provision.sh.
+# This is the EXAMPLE template (committed to git). Don't edit it in place.
+# Copy it to cfg/butane.yaml (gitignored) and fill in your secrets there:
+#   cp cfg/butane.example.yaml cfg/butane.yaml
 #
-# Then transpile:
-#   butane --pretty --strict cfg/butane.yaml > cfg/ignition.json
+# Then edit the three sections marked CONFIGURE in cfg/butane.yaml and transpile:
+#   make transpile     # or: butane --pretty --strict cfg/butane.yaml > cfg/ignition.json
 #
 # ────────────────────────────────────────────────────────────────────────────
 

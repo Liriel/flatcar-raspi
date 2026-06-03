@@ -27,6 +27,10 @@ git tag v0.5.1 && git push origin v0.5.1   # triggers .github/workflows/build.ym
 
 ## The single config: `cfg/butane.yaml`
 
+The committed file is `cfg/butane.example.yaml` (a template with placeholders). Users copy it to
+`cfg/butane.yaml` (gitignored) and fill in their secrets — never edit the example in place for a
+real deployment, and never commit `cfg/butane.yaml`.
+
 All node configuration lives in one Butane file, `cfg/butane.yaml`, consumed by
 `make transpile` → `cfg/ignition.json` → `provision.sh`. It carries the SSH key, the
 Pi-specific `kernel_arguments` (serial console + `flatcar.autologin`), the Traceway token and
@@ -75,8 +79,10 @@ sudo systemctl start install-traceway-sysext.service`.
 
 ## Conventions / gotchas
 
-- `*.raw`, `*.raw.sha256`, the agent binary, `cfg/ignition.json`, and `flatcar-install/flatcar-install`
-  are gitignored. **Never commit the transpiled `cfg/ignition.json`** — it contains the SSH key and Traceway token.
+- `*.raw`, `*.raw.sha256`, the agent binary, `cfg/butane.yaml`, `cfg/ignition.json`, and
+  `flatcar-install/flatcar-install` are gitignored. Only `cfg/butane.example.yaml` is committed.
+  **Never commit `cfg/butane.yaml` or the transpiled `cfg/ignition.json`** — both contain the SSH key
+  and Traceway token.
 - Editable placeholders to fill before provisioning: SSH public key, `YOUR_PROJECT_TOKEN`,
   and `YOUR_GITHUB_USERNAME/traceway-sysext` + `SYSEXT_TAG` in the install script.
 - The local downloaded `.raw` filename must equal the image's extension-release name
