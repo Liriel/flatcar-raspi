@@ -19,6 +19,7 @@ version: 1.0.0
 #   - Enables the traceway-otel-agent.service unit (shipped inside the sysext).
 # ────────────────────────────────────────────────────────────────────────────
 
+
 storage:
   directories:
     - path: /etc/traceway-otel-agent
@@ -32,6 +33,10 @@ storage:
     - path: /etc/extensions
 
   files:
+    files:
+    - path: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
+      contents:
+        source: https://github.com/flatcar/sysext-bakery/releases/download/latest/docker-compose-5.1.4-arm64.raw
     # ── Credentials (mode 0600 — only root reads this) ─────────────────────
     - path: /etc/traceway-otel-agent/token
       mode: 0600
@@ -139,6 +144,11 @@ storage:
           systemd-sysext refresh
           systemctl daemon-reload
           systemctl start traceway-otel-agent.service
+
+  links:
+    - target: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
+      path: /etc/extensions/docker_compose.raw
+      hard: false
 
 systemd:
   units:
