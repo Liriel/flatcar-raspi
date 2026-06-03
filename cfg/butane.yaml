@@ -1,0 +1,168 @@
+variant: flatcar
+version: 1.0.0
+
+# ── Traceway OTel Agent on Flatcar / Raspberry Pi 4 ─────────────────────────
+#
+# Edit the three sections marked CONFIGURE before running provision.sh.
+#
+# Then transpile:
+#   butane --pretty --strict cfg/butane.yaml > cfg/ignition.json
+#
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── CONFIGURE 1 of 3: SSH access ────────────────────────────────────────────
+# Replace the placeholder with your actual public key.
+# Get it with:  cat ~/.ssh/id_ed25519.pub   (or id_rsa.pub)
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - "ssh-ed25519 AAAAC3Nza... your-public-key-here"
+
+# ── CONFIGURE 2 of 3: Kernel args (required for Pi serial + autologin) ──────
+# These match what the Flatcar Pi docs require. Leave them as-is unless you
+# specifically don't want autologin on tty1.
+kernel_arguments:
+  should_exist:
+    - console=ttyAMA0,115200n8
+    - console=tty1
+    - flatcar.autologin
+    - usbcore.autosuspend=-1
+
+storage:
+  directories:
+    - path: /etc/traceway-otel-agent
+      mode: 0700
+    - path: /var/lib/traceway-otel-agent
+      mode: 0700
+    - path: /etc/extensions
+
+  files:
+    # ── CONFIGURE 3 of 3: Traceway credentials ──────────────────────────────
+    - path: /etc/traceway-otel-agent/token
+      mode: 0600
+      contents:
+        inline: |
+          TRACEWAY_TOKEN=YOUR_PROJECT_TOKEN
+          TRACEWAY_ENDPOINT=https://cloud.tracewayapp.com/api/otel
+          # Leave blank to use the hostname automatically
+          TRACEWAY_SERVICE_NAME=
+
+    # ── Agent config (edit freely after provisioning) ────────────────────────
+    - path: /etc/traceway-otel-agent/config.yaml
+      mode: 0644
+      contents:
+        inline: |
+          extensions:
+            health_check:
+              endpoint: "127.0.0.1:13133"
+
+          receivers:
+            hostmetrics:
+              collection_interval: 60s
+              scrapers:
+                cpu: {}
+                load: {}
+                memory: {}
+                disk: {}
+                filesystem: {}
+                network: {}
+
+          processors:
+            memory_limiter:
+              limit_mib: 256
+              check_interval: 5s
+            resourcedetection:
+              detectors: [env, system]
+              timeout: 5s
+            batch:
+              timeout: 10s
+              send_batch_size: 8192
+
+          exporters:
+            otlphttp:
+              endpoint: "${env:TRACEWAY_ENDPOINT}"
+              compression: gzip
+              headers:
+                Authorization: "Bearer ${env:TRACEWAY_TOKEN}"
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 5m
+              sending_queue:
+                enabled: true
+
+          service:
+            extensions: [health_check]
+            pipelines:
+              metrics:
+                receivers: [hostmetrics]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [otlphttp]
+
+    # ── Sysext download script ───────────────────────────────────────────────
+    - path: /opt/bin/install-traceway-sysext.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -euo pipefail
+
+          # ── Update these when you cut a new sysext release ────────────────
+          GITHUB_REPO="YOUR_GITHUB_USERNAME/traceway-sysext"
+          SYSEXT_TAG="v0.5.0"
+          # ──────────────────────────────────────────────────────────────────
+
+          # Raspberry Pi 4 runs arm64-usr Flatcar, so we pull the arm64 image.
+          # The local filename MUST match the image's extension-release name
+          # (traceway-otel-agent-arm64) or systemd-sysext will refuse to merge it.
+          IMAGE="traceway-otel-agent-arm64"
+          DEST="/etc/extensions/${IMAGE}.raw"
+          BASE="https://github.com/${GITHUB_REPO}/releases/download/${SYSEXT_TAG}"
+
+          echo "Downloading ${IMAGE}.raw (${SYSEXT_TAG})..."
+          curl -fsSL "${BASE}/${IMAGE}.raw"        -o "${DEST}.tmp"
+          curl -fsSL "${BASE}/${IMAGE}.raw.sha256" -o "${DEST}.sha256"
+
+          expected=$(awk '{print $1}' "${DEST}.sha256")
+          actual=$(sha256sum "${DEST}.tmp" | awk '{print $1}')
+          if [ "${expected}" != "${actual}" ]; then
+            echo "Checksum mismatch! expected=${expected} got=${actual}" >&2
+            rm -f "${DEST}.tmp"
+            exit 1
+          fi
+
+          mv "${DEST}.tmp" "${DEST}"
+          echo "Installed ${DEST}"
+          systemd-sysext refresh
+          # Reload unit files now visible from the merged /usr, then start the
+          # agent. The baked-in multi-user.target.wants symlink handles enabling
+          # on subsequent boots; this start covers the current boot.
+          systemctl daemon-reload
+          systemctl start traceway-otel-agent.service
+
+systemd:
+  units:
+    - name: install-traceway-sysext.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Download and install Traceway sysext image
+        After=network-online.target
+        Wants=network-online.target
+        ConditionPathExists=!/var/lib/traceway-otel-agent/.sysext-installed
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/bin/install-traceway-sysext.sh
+        ExecStartPost=/bin/touch /var/lib/traceway-otel-agent/.sysext-installed
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # The traceway-otel-agent.service unit ships *inside* the sysext image
+    # (pre-enabled via a multi-user.target.wants symlink baked into the image),
+    # so it does not need to be declared here. Ignition cannot enable a unit
+    # it can't see at provisioning time, before the sysext is mounted.

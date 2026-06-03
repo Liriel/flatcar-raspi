@@ -1,0 +1,3 @@
+# The flatcar-install script is fetched on demand (make fetch-installer)
+# Don't commit it — it's a third-party tool that can change between runs
+flatcar-install

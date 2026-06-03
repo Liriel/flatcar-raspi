@@ -1,0 +1,183 @@
+name: Build sysext
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      agent_version:
+        description: "traceway-otel-agent version to bundle (e.g. v0.5.0)"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create the GitHub Release
+
+    strategy:
+      matrix:
+        # Flatcar arch name (sysext + extension-release)  <->  upstream asset arch
+        include:
+          - flatcar_arch: arm64    # Raspberry Pi 4, arm64-usr Flatcar
+            asset_arch: arm64
+          - flatcar_arch: x86-64   # cloud / bare-metal amd64 Flatcar
+            asset_arch: amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # -- Tooling: squashfs-tools is not preinstalled on ubuntu-latest ------
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools
+
+      # -- Resolve which agent version to bundle -----------------------------
+      - name: Resolve agent version
+        id: agent
+        run: |
+          if [ -n "${{ github.event.inputs.agent_version }}" ]; then
+            echo "version=${{ github.event.inputs.agent_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(cat AGENT_VERSION)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -- Download the upstream binary for this arch ------------------------
+      - name: Download traceway-otel-agent binary
+        env:
+          AGENT_VERSION: ${{ steps.agent.outputs.version }}
+          ASSET_ARCH: ${{ matrix.asset_arch }}
+        run: |
+          BASE="https://github.com/tracewayapp/traceway-otel-agent/releases/download/${AGENT_VERSION}"
+          # Upstream asset naming: traceway-otel-agent_<version>_linux_<arch>.tar.gz
+          ARCHIVE="traceway-otel-agent_${AGENT_VERSION}_linux_${ASSET_ARCH}.tar.gz"
+          CHECKSUMS="checksums.txt"
+
+          echo "Downloading ${ARCHIVE}"
+          curl -fsSL "${BASE}/${ARCHIVE}"   -o "${ARCHIVE}"
+          curl -fsSL "${BASE}/${CHECKSUMS}" -o "${CHECKSUMS}"
+
+          # Verify checksum for just this archive
+          grep "${ARCHIVE}" "${CHECKSUMS}" | sha256sum -c -
+
+          mkdir -p extracted
+          tar -xzf "${ARCHIVE}" -C extracted
+
+          # Locate the binary regardless of its position in the archive
+          BIN_PATH="$(find extracted -type f -name 'traceway-otel-agent' | head -n1)"
+          if [ -z "${BIN_PATH}" ]; then
+            echo "Could not find traceway-otel-agent binary in archive:" >&2
+            find extracted -type f >&2
+            exit 1
+          fi
+          # Sanity check: print ELF arch
+          file "${BIN_PATH}"
+          echo "BIN_PATH=${BIN_PATH}" >> "$GITHUB_ENV"
+
+      # -- Build the sysext raw image ----------------------------------------
+      - name: Build sysext image
+        env:
+          AGENT_VERSION: ${{ steps.agent.outputs.version }}
+          FLATCAR_ARCH: ${{ matrix.flatcar_arch }}
+        run: |
+          OUT="traceway-otel-agent-${FLATCAR_ARCH}"
+
+          # -- sysext directory tree --
+          # systemd-sysext merges /usr from the image into the host /usr.
+          mkdir -p \
+            "${OUT}/usr/bin" \
+            "${OUT}/usr/lib/systemd/system" \
+            "${OUT}/usr/lib/systemd/system/multi-user.target.wants" \
+            "${OUT}/usr/lib/extension-release.d"
+
+          # Binary
+          install -m 0755 "${BIN_PATH}" "${OUT}/usr/bin/traceway-otel-agent"
+
+          # Systemd unit
+          cat > "${OUT}/usr/lib/systemd/system/traceway-otel-agent.service" << 'UNIT'
+          [Unit]
+          Description=Traceway OTel Agent
+          Documentation=https://docs.tracewayapp.com/learn/otel-agent
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/traceway-otel-agent/token
+          ExecStart=/usr/bin/traceway-otel-agent --config=/etc/traceway-otel-agent/config.yaml
+          Restart=on-failure
+          RestartSec=10s
+
+          # Hardening
+          ProtectSystem=strict
+          ProtectHome=true
+          PrivateTmp=true
+          NoNewPrivileges=true
+          ReadWritePaths=/var/lib/traceway-otel-agent
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          # Pre-enable the unit *inside the image* via the WantedBy symlink.
+          # sysext images don't run `systemctl enable`, so we ship the symlink
+          # that enabling would create. This is the reliable way to get a
+          # sysext-shipped unit started without relying on Ignition.
+          ln -sf ../traceway-otel-agent.service \
+            "${OUT}/usr/lib/systemd/system/multi-user.target.wants/traceway-otel-agent.service"
+
+          # sysext metadata. ARCHITECTURE must match the host or systemd-sysext
+          # refuses to merge the image. VERSION_ID=_any matches any Flatcar
+          # release; pin to a specific version (e.g. 3815.2.0) if you prefer.
+          cat > "${OUT}/usr/lib/extension-release.d/extension-release.${OUT}" << META
+          ID=flatcar
+          VERSION_ID=_any
+          ARCHITECTURE=${FLATCAR_ARCH}
+          META
+
+          # Pack into a squashfs raw image
+          mksquashfs "${OUT}" "${OUT}.raw" -comp xz -noappend -quiet
+
+          sha256sum "${OUT}.raw" > "${OUT}.raw.sha256"
+          echo "Built ${OUT}.raw ($(du -sh "${OUT}.raw" | cut -f1))"
+
+      # -- Upload per-arch artifacts so the release job can collect them -----
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysext-${{ matrix.flatcar_arch }}
+          path: |
+            traceway-otel-agent-${{ matrix.flatcar_arch }}.raw
+            traceway-otel-agent-${{ matrix.flatcar_arch }}.raw.sha256
+
+  # -- Collect both arches and publish one release -----------------------
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.raw
+            artifacts/*.raw.sha256
+          body: |
+            Sysext images bundling traceway-otel-agent.
+
+            Assets:
+            - `traceway-otel-agent-arm64.raw`  -- Raspberry Pi 4 / arm64-usr Flatcar
+            - `traceway-otel-agent-x86-64.raw` -- amd64 cloud / bare-metal Flatcar
+
+            See INSTALL.md (Pi) or ignition/butane.yaml (cloud) for wiring.

@@ -1,0 +1,12 @@
+# Built artifacts — these are published as release assets, not committed
+*.raw
+*.raw.sha256
+traceway-otel-agent
+
+# Transpiled Ignition JSON — commit the Butane source, not the output
+# These may contain secrets (SSH key, Traceway token) — never commit them
+ignition/ignition.json
+cfg/ignition.json
+
+# The flatcar-install script is fetched on demand (make fetch-installer)
+flatcar-install/flatcar-install
