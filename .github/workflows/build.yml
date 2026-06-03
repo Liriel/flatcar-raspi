@@ -20,11 +20,10 @@ jobs:
     strategy:
       matrix:
         # Flatcar arch name (sysext + extension-release)  <->  upstream asset arch
+        # Raspberry Pi 4 only — arm64-usr Flatcar.
         include:
-          - flatcar_arch: arm64    # Raspberry Pi 4, arm64-usr Flatcar
+          - flatcar_arch: arm64
             asset_arch: arm64
-          - flatcar_arch: x86-64   # cloud / bare-metal amd64 Flatcar
-            asset_arch: amd64
 
     steps:
       - uses: actions/checkout@v4
@@ -176,8 +175,7 @@ jobs:
           body: |
             Sysext images bundling traceway-otel-agent.
 
-            Assets:
+            Asset:
             - `traceway-otel-agent-arm64.raw`  -- Raspberry Pi 4 / arm64-usr Flatcar
-            - `traceway-otel-agent-x86-64.raw` -- amd64 cloud / bare-metal Flatcar
 
-            See INSTALL.md (Pi) or ignition/butane.yaml (cloud) for wiring.
+            See INSTALL.md for wiring.

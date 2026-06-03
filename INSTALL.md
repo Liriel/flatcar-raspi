@@ -4,6 +4,11 @@ This guide walks you from a blank SD card to a running Flatcar node sending
 host metrics to Traceway. Everything is driven from this repo on your
 laptop — the Pi itself needs no manual setup.
 
+> The `provision.sh` + `cfg/butane.yaml` flow automates the official
+> [Flatcar on Raspberry Pi 4](https://www.flatcar.org/docs/latest/installing/bare-metal/raspberry-pi/)
+> procedure (same `flatcar-install` flags, kernel args, and pftf/RPi4 UEFI step).
+> Consult that page if upstream changes the install steps.
+
 ---
 
 ## What you need

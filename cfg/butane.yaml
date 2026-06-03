@@ -38,6 +38,12 @@ storage:
     - path: /etc/extensions
 
   files:
+    # ── docker-compose sysext (from the Flatcar sysext-bakery) ───────────────
+    # Downloaded by Ignition on first boot; the link below activates it.
+    - path: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
+      contents:
+        source: https://github.com/flatcar/sysext-bakery/releases/download/latest/docker-compose-5.1.4-arm64.raw
+
     # ── CONFIGURE 3 of 3: Traceway credentials ──────────────────────────────
     - path: /etc/traceway-otel-agent/token
       mode: 0600
@@ -141,6 +147,12 @@ storage:
           # on subsequent boots; this start covers the current boot.
           systemctl daemon-reload
           systemctl start traceway-otel-agent.service
+
+  links:
+    # Activate the docker-compose sysext by linking it into /etc/extensions.
+    - target: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
+      path: /etc/extensions/docker_compose.raw
+      hard: false
 
 systemd:
   units:

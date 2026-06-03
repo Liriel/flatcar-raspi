@@ -4,8 +4,7 @@
 traceway-otel-agent
 
 # Transpiled Ignition JSON — commit the Butane source, not the output
-# These may contain secrets (SSH key, Traceway token) — never commit them
-ignition/ignition.json
+# This may contain secrets (SSH key, Traceway token) — never commit it
 cfg/ignition.json
 
 # The flatcar-install script is fetched on demand (make fetch-installer)
