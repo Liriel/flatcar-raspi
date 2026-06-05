@@ -129,11 +129,20 @@ jobs:
             "${OUT}/usr/lib/systemd/system/multi-user.target.wants/traceway-otel-agent.service"
 
           # sysext metadata. ARCHITECTURE must match the host or systemd-sysext
-          # refuses to merge the image. VERSION_ID=_any matches any Flatcar
-          # release; pin to a specific version (e.g. 3815.2.0) if you prefer.
+          # refuses to merge the image.
+          #
+          # Version matching (the silent-skip trap): with ID=flatcar, systemd
+          # requires SYSEXT_LEVEL= to match the host (or, only if SYSEXT_LEVEL is
+          # absent, VERSION_ID= to match). "_any" is a wildcard ONLY for ID= —
+          # *not* for VERSION_ID=. So VERSION_ID=_any does NOT mean "any release";
+          # systemd compares it literally against the host VERSION_ID, mismatches,
+          # and drops the image with no error. We use SYSEXT_LEVEL=1.0 — the stable
+          # sysext-interface version Flatcar's os-release carries across releases,
+          # which is exactly how the flatcar/sysext-bakery images stay
+          # release-independent. (Alternatively, ID=_any skips the check entirely.)
           cat > "${OUT}/usr/lib/extension-release.d/extension-release.${OUT}" << META
           ID=flatcar
-          VERSION_ID=_any
+          SYSEXT_LEVEL=1.0
           ARCHITECTURE=${FLATCAR_ARCH}
           META
 
