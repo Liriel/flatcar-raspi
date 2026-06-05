@@ -40,6 +40,35 @@ storage:
     - path: /etc/extensions
 
   files:
+    # ── OPTIONAL: Wi-Fi ──────────────────────────────────────────────────────
+    # Skip this whole block if the Pi is on Ethernet. To use Wi-Fi instead,
+    # uncomment the two files below AND the wpa_supplicant unit at the bottom of
+    # this file, then fill in your SSID and passphrase. The Pi 4's onboard
+    # brcmfmac Wi-Fi shows up as wlan0; if `ip link` reports a different name on
+    # first boot, rename these files and the unit to match.
+    #
+    # - path: /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+    #   mode: 0600
+    #   contents:
+    #     inline: |
+    #       ctrl_interface=/run/wpa_supplicant
+    #       ctrl_interface_group=wheel
+    #       update_config=1
+    #
+    #       network={
+    #           ssid="YOUR_WIFI_SSID"
+    #           psk="YOUR_WIFI_PASSPHRASE"
+    #       }
+    # - path: /etc/systemd/network/25-wlan0.network
+    #   mode: 0644
+    #   contents:
+    #     inline: |
+    #       [Match]
+    #       Name=wlan0
+    #
+    #       [Network]
+    #       DHCP=yes
+
     # ── docker-compose sysext (from the Flatcar sysext-bakery) ───────────────
     # Downloaded by Ignition on first boot; the link below activates it.
     - path: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
@@ -180,3 +209,8 @@ systemd:
     # (pre-enabled via a multi-user.target.wants symlink baked into the image),
     # so it does not need to be declared here. Ignition cannot enable a unit
     # it can't see at provisioning time, before the sysext is mounted.
+
+    # ── OPTIONAL: Wi-Fi ──────────────────────────────────────────────────────
+    # Uncomment together with the two Wi-Fi files in the storage section above.
+    # - name: wpa_supplicant@wlan0.service
+    #   enabled: true

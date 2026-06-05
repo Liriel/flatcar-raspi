@@ -138,6 +138,33 @@ GITHUB_REPO="YOUR_GITHUB_USERNAME/traceway-sysext"   # ← your fork
 SYSEXT_TAG="v0.5.0"                                   # ← the release tag you built
 ```
 
+### 2d. (Optional) Connect over Wi-Fi instead of Ethernet
+
+If the Pi is on Ethernet, skip this — DHCP just works. To use the Pi 4's
+onboard Wi-Fi, find the **OPTIONAL: Wi-Fi** blocks in `cfg/butane.yaml` (one in
+the `storage:` section, one in the `systemd:` section) and uncomment all three:
+
+- `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf` — set `ssid` and `psk` to
+  your network name and passphrase.
+- `/etc/systemd/network/25-wlan0.network` — DHCP for the `wlan0` interface
+  (leave as-is).
+- the `wpa_supplicant@wlan0.service` unit — starts the supplicant at boot.
+
+```yaml
+network={
+    ssid="YOUR_WIFI_SSID"
+    psk="YOUR_WIFI_PASSPHRASE"
+}
+```
+
+> **Avoid storing the cleartext passphrase:** run
+> `wpa_passphrase "YOUR_WIFI_SSID" "YOUR_WIFI_PASSPHRASE"` and paste the
+> resulting hashed `psk=` line (no quotes) in place of the plaintext one.
+
+> **Interface name:** the Pi 4's onboard Wi-Fi is normally `wlan0`. If
+> `ip link` on the booted Pi reports a different name, rename the two files and
+> the unit (the `wlan0` parts) to match.
+
 ---
 
 ## Step 3 — Transpile to Ignition JSON
@@ -181,10 +208,10 @@ the next step will erase the device completely.
 make provision DEVICE=/dev/sdb
 ```
 
-Or directly:
+Or directly (both must be run as root — from a root shell, since this host has no `sudo`):
 
 ```bash
-sudo ./provision.sh /dev/sdb
+./provision.sh /dev/sdb
 ```
 
 The script will:
