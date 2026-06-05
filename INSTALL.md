@@ -326,6 +326,24 @@ INSTALL.md          ← this file
 The EEPROM may be too old. Repeat the EEPROM update in the one-time prep
 section above.
 
+**Pi hangs at a logo, or shows a rainbow screen with 7 green-LED blinks**
+This is the **pftf/RPi4 UEFI firmware version** — newer is *not* safer. The
+firmware version `provision.sh` installs is pinned via `PFTF_VERSION` (default
+**`v1.41`**, known-good for Flatcar arm64 on a Pi 4 with a current EEPROM).
+Observed failure modes when it's wrong:
+- *Large centered Raspberry logo, frozen, keyboard ignored* — UEFI loaded but
+  won't hand off to GRUB. Seen on **v1.52** (was `latest` as of 2026-06).
+- *Rainbow screen + 7 green blinks* (= "kernel image not found": `start4.elf`
+  can't load `RPI_EFI.fd`) — firmware too old for a freshly-updated EEPROM.
+  Seen on **v1.37**.
+
+If v1.41 ever stops working, try a nearby version rather than `latest`:
+```bash
+PFTF_VERSION=v1.42 make provision DEVICE=/dev/sdX
+```
+Don't hand-patch firmware files onto an already-written card — mixing versions
+causes the same 7-blink failure. Always do a clean `make provision`.
+
 **SSH connection refused**
 The Pi is probably still on its first boot. Wait 90 seconds and try again.
 If it still fails, connect a monitor — Flatcar will show a login prompt on

@@ -23,6 +23,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IGNITION_CONFIG="${SCRIPT_DIR}/cfg/ignition.json"
 INSTALLER="${SCRIPT_DIR}/flatcar-install/flatcar-install"
 
+# pftf/RPi4 UEFI firmware version. Pinned (not "latest") — the version matters:
+#   v1.41  KNOWN GOOD — boots Flatcar arm64 on a Pi 4 with a current EEPROM.
+#   v1.52  (was "latest" 2026-06) FAILED — UEFI splash loads but freezes before
+#          GRUB handoff and ignores keyboard input.
+#   v1.37  FAILED — too old for a freshly-updated EEPROM: rainbow screen +
+#          7 green-LED blinks ("kernel image not found", i.e. start4.elf can't
+#          load RPI_EFI.fd).
+# So newer isn't safer and older isn't safer — v1.41 is the sweet spot.
+# Override if needed: PFTF_VERSION=v1.42 ./provision.sh /dev/sdX
+PFTF_VERSION="${PFTF_VERSION:-v1.41}"
+
 # ── Preflight ────────────────────────────────────────────────────────────────
 
 if [[ -z "${DEVICE}" ]]; then
@@ -110,9 +121,8 @@ mount "${EFI_PART}" "${EFI_MOUNT}"
 
 pushd "${EFI_MOUNT}" > /dev/null
 
-echo "  Fetching latest pftf/RPi4 release tag..."
-UEFI_VERSION=$(curl --silent "https://api.github.com/repos/pftf/RPi4/releases/latest" | jq -r .tag_name)
-echo "  Downloading RPi4_UEFI_Firmware_${UEFI_VERSION}.zip ..."
+UEFI_VERSION="${PFTF_VERSION}"
+echo "  Downloading pinned RPi4_UEFI_Firmware_${UEFI_VERSION}.zip ..."
 curl -fsSL "https://github.com/pftf/RPi4/releases/download/${UEFI_VERSION}/RPi4_UEFI_Firmware_${UEFI_VERSION}.zip" \
      -o uefi.zip
 unzip -q uefi.zip
