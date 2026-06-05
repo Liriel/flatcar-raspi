@@ -16,7 +16,7 @@ repo targets the Pi only — there is no cloud/amd64 deployment path.
 ```bash
 make fetch-installer          # download the flatcar-install script into flatcar-install/ (gitignored, re-run on fresh clone)
 make transpile                # cfg/butane.yaml → cfg/ignition.json (requires butane on PATH)
-make provision DEVICE=/dev/sdb  # write Flatcar + Ignition + RPi4 UEFI firmware to an SD card (sudo, DESTRUCTIVE)
+make provision DEVICE=/dev/sdb  # write Flatcar + Ignition + RPi4 UEFI firmware to an SD card (run as root, DESTRUCTIVE)
 ```
 
 There are no tests or linters. Releases are cut by pushing a git tag:

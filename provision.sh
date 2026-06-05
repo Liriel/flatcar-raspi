@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # provision.sh — write a Flatcar + Traceway sysext image to an SD card / USB drive
 #
-# Usage:
-#   sudo ./provision.sh /dev/sdX
+# Usage (run as root, e.g. from a root shell — no sudo required):
+#   ./provision.sh /dev/sdX
 #
 # What it does:
 #   1. Checks cfg/ignition.json exists (reminds you to transpile if not).
@@ -12,7 +12,7 @@
 #      (pftf/RPi4 latest release) so the Pi can actually boot.
 #
 # Requirements on the host:
-#   curl, jq, unzip, sudo
+#   curl, jq, unzip  (and root privileges — run as root, not via sudo)
 #   The flatcar-install script must be present at flatcar-install/flatcar-install
 #   (run `make fetch-installer` or follow INSTALL.md step 1 if it's missing).
 
@@ -26,13 +26,13 @@ INSTALLER="${SCRIPT_DIR}/flatcar-install/flatcar-install"
 # ── Preflight ────────────────────────────────────────────────────────────────
 
 if [[ -z "${DEVICE}" ]]; then
-  echo "Usage: sudo $0 /dev/sdX" >&2
+  echo "Usage: $0 /dev/sdX  (run as root)" >&2
   echo "Use lsblk to identify your SD card / USB drive." >&2
   exit 1
 fi
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "This script must be run as root (sudo)." >&2
+  echo "This script must be run as root." >&2
   exit 1
 fi
 

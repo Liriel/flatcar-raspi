@@ -32,7 +32,9 @@ transpile: ## Transpile cfg/butane.yaml → cfg/ignition.json (uses local butane
 	fi
 	@echo "Written: cfg/ignition.json"
 
-provision: ## Write image to DEVICE (default: /dev/sdX). Run: make provision DEVICE=/dev/sdb
+provision: ## Write image to DEVICE (default: /dev/sdX). Run as root: make provision DEVICE=/dev/sdb
 	@[ "$(DEVICE)" != "/dev/sdX" ] || \
 	  (echo "Set DEVICE to your SD card, e.g.: make provision DEVICE=/dev/sdb"; exit 1)
-	sudo ./provision.sh $(DEVICE)
+	@[ "$$(id -u)" = "0" ] || \
+	  (echo "make provision must be run as root (no sudo): run it from a root shell."; exit 1)
+	./provision.sh $(DEVICE)
