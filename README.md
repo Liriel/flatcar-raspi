@@ -35,7 +35,7 @@ Raspberry Pi 4 (first boot via Ignition)
 ├── .github/workflows/build.yml      # builds + publishes the sysext on tag push
 ├── cfg/
 │   ├── butane.example.yaml          # committed template — copy to butane.yaml and edit
-│   └── butane.yaml                  # your config (gitignored): SSH key, token, agent + docker-compose sysext
+│   └── butane.yaml                  # your config (gitignored): SSH key, token, agent + docker-compose sysext (boot-time fetch)
 └── flatcar-install/                 # holds the fetched flatcar-install script (gitignored)
 ```
 
@@ -72,8 +72,13 @@ Then fill in the placeholders in `cfg/butane.yaml` (all marked `CONFIGURE` in th
 | `ssh-ed25519 AAAAC3Nza...` | Your SSH public key (`cat ~/.ssh/id_ed25519.pub`) |
 | `YOUR_PROJECT_TOKEN` | Your Traceway project token (Settings → project → copy token) |
 | `YOUR_GITHUB_USERNAME/traceway-sysext` + `SYSEXT_TAG` | Your repo path and the release tag you built |
+| `/etc/hostname` → `flatcar-pi` | The node's hostname — also its `<hostname>.local` mDNS name |
 
 Optionally set `TRACEWAY_SERVICE_NAME` to a fixed label (defaults to hostname).
+
+The node advertises itself over mDNS (via `systemd-resolved`, no avahi needed), so
+once it's up you can reach it by name instead of hunting for its IP:
+`ssh core@flatcar-pi.local`.
 
 ### 4. Transpile and write the SD card
 
@@ -88,6 +93,13 @@ See [INSTALL.md](INSTALL.md) for EEPROM prep, device identification, and first-b
 On first boot the Pi will download the `traceway-otel-agent-arm64.raw` from your
 release, verify its sha256, merge the sysext, and start the agent. Metrics appear in
 your Traceway dashboard within ~60 seconds.
+
+> **First boot must be on Ethernet — even if you configure Wi-Fi.** Ignition runs
+> in the initramfs where Flatcar only supports wired DHCP (no Wi-Fi driver stack),
+> and the sysext downloads happen before Wi-Fi associates. Your `wpa_supplicant`
+> config only takes effect once the booted system is up. After a successful
+> Ethernet first boot, the sysexts are on disk and stamped, so the Pi runs on
+> Wi-Fi alone across subsequent reboots. See [INSTALL.md §2d](INSTALL.md).
 
 ## Upgrading the agent
 

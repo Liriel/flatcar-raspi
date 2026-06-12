@@ -140,9 +140,27 @@ SYSEXT_TAG="v0.5.0"                                   # ← the release tag you 
 
 ### 2d. (Optional) Connect over Wi-Fi instead of Ethernet
 
-If the Pi is on Ethernet, skip this — DHCP just works. To use the Pi 4's
-onboard Wi-Fi, find the **OPTIONAL: Wi-Fi** blocks in `cfg/butane.yaml` (one in
-the `storage:` section, one in the `systemd:` section) and uncomment all three:
+> **⚠️ Use Ethernet for the first boot — even if you configure Wi-Fi.**
+> Wi-Fi is unavailable during early boot:
+>
+> - WiFi is not supported in the initramfs (the kernel lacks the driver stack
+>   there); your `wpa_supplicant` config is just written to disk for the
+>   *booted* system to use later.
+> - The two sysext downloads (`install-traceway-sysext.service` and
+>   `install-docker-compose-sysext.service`) fire as the system comes up,
+>   racing Wi-Fi association/DHCP — and they need the clock NTP-synced first
+>   (the Pi has no RTC), which itself needs the network.
+>
+> So: **plug in an Ethernet cable for the first boot.** Once both sysexts are
+> downloaded (the traceway `.sysext-installed` stamp and
+> `/etc/extensions/docker_compose.raw` both exist), nothing re-downloads on
+> later boots — you can then unplug Ethernet and the Pi will run on Wi-Fi
+> alone across reboots.
+
+If the Pi stays on Ethernet, skip this — DHCP just works. To use the Pi 4's
+onboard Wi-Fi *for steady-state operation* (after the Ethernet first boot),
+find the **OPTIONAL: Wi-Fi** blocks in `cfg/butane.yaml` (one in the
+`storage:` section, one in the `systemd:` section) and uncomment all three:
 
 - `/etc/wpa_supplicant/wpa_supplicant-wlan0.conf` — set `ssid` and `psk` to
   your network name and passphrase.
@@ -164,6 +182,27 @@ network={
 > **Interface name:** the Pi 4's onboard Wi-Fi is normally `wlan0`. If
 > `ip link` on the booted Pi reports a different name, rename the two files and
 > the unit (the `wlan0` parts) to match.
+
+### 2e. (Optional) Set the hostname / `.local` name
+
+The config sets a hostname and advertises it over mDNS, so after boot you can
+reach the Pi as `<hostname>.local` — no need to hunt for its IP on the router.
+This is the same "`hostname.local` magic" you'd get from avahi, but done
+natively by `systemd-resolved` (which Flatcar already ships), so there's no
+extra package or sysext to build.
+
+Find the `/etc/hostname` file block and change the name:
+
+```yaml
+- path: /etc/hostname
+  mode: 0644
+  contents:
+    inline: flatcar-pi      # ← whatever you want; you'll then ssh core@flatcar-pi.local
+```
+
+The two `10-mdns.conf` drop-ins beside it (and the `MulticastDNS=yes` line in the
+`wlan0` network block) enable the responder — leave them as-is. mDNS works on the
+same L2 LAN segment; it won't cross routers/VLANs or most VPNs.
 
 ---
 
@@ -243,6 +282,10 @@ diskutil eject /dev/disk4
 
 2. Insert the SD card (or USB drive) into the Raspberry Pi 4 and power it on.
 
+> **Plug in Ethernet for this first boot** (even if you configured Wi-Fi in
+> §2d). The sysext downloads happen before Wi-Fi can come up; see §2d. After
+> the first successful boot, Wi-Fi takes over and the cable can come out.
+
 On first boot, the Pi will:
 - Run Ignition — creates the `core` user, writes the agent config and token,
   and places the sysext download script.
@@ -257,13 +300,24 @@ First boot takes about 60–90 seconds. Subsequent boots are fast.
 
 ## Step 7 — SSH in
 
-Find the Pi's IP address from your router, then:
+If you set a hostname in step 2e, just use the mDNS name (no need to find the IP):
+
+```bash
+ssh core@flatcar-pi.local      # ← your hostname from step 2e
+```
+
+Otherwise find the Pi's IP address from your router and use that:
 
 ```bash
 ssh core@<pi-ip-address>
 ```
 
 No password — authentication uses your SSH key from step 2a.
+
+> Connecting from the **kitty** terminal works out of the box: the config ships
+> the `xterm-kitty` terminfo entry, so `clear`/`less`/`vim` behave normally. (If
+> you ever strip that file out, connect with `kitten ssh` instead, which copies
+> the terminfo over on the fly.)
 
 Check that the agent is running:
 
@@ -350,14 +404,32 @@ If it still fails, connect a monitor — Flatcar will show a login prompt on
 `tty1` (autologin is enabled by the kernel args). Check
 `sudo systemctl status ignition-setup-base` for errors.
 
-**`install-traceway-sysext.service` failed**
-The Pi needs internet access to download the sysext. Check:
+**`install-traceway-sysext.service` or `install-docker-compose-sysext.service` failed**
+Both sysexts are downloaded at boot. Check:
 ```bash
 sudo journalctl -u install-traceway-sysext -b
+sudo journalctl -u install-docker-compose-sysext -b
 ```
 Common causes: the GitHub repo/tag doesn't exist yet (did you push the tag
-and wait for Actions to finish?), or no network on first boot (check your
-router/DHCP).
+and wait for Actions to finish?); the bakery pruned the pinned
+`COMPOSE_VERSION` from its `latest` release (bump it in the script); or no
+network on first boot (check your router/DHCP).
+
+> **`tls: failed to verify certificate`** means the clock wasn't NTP-synced
+> when the fetch ran — the Pi has no RTC. This is why neither sysext is fetched
+> by Ignition (which runs before any clock sync); both wait for
+> `time-sync.target` at boot. If you still hit it, the node likely has no DNS/
+> NTP reachability — fix the network and re-run (commands below).
+>
+> **On Wi-Fi-only first boots this can fail** — Wi-Fi isn't up this early (see
+> §2d). Do the **first boot on Ethernet**. To recover, plug in Ethernet and
+> re-run the failed download:
+> ```bash
+> # traceway:
+> sudo rm /var/lib/traceway-otel-agent/.sysext-installed && sudo systemctl start install-traceway-sysext.service
+> # docker-compose:
+> sudo rm -f /etc/extensions/docker_compose.raw && sudo systemctl start install-docker-compose-sysext.service
+> ```
 
 **No metrics in Traceway**
 ```bash

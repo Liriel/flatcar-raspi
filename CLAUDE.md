@@ -34,12 +34,39 @@ real deployment, and never commit `cfg/butane.yaml`.
 All node configuration lives in one Butane file, `cfg/butane.yaml`, consumed by
 `make transpile` → `cfg/ignition.json` → `provision.sh`. It carries the SSH key, the
 Pi-specific `kernel_arguments` (serial console + `flatcar.autologin`), the Traceway token and
-agent config, the embedded `install-traceway-sysext.sh` download script, and a docker-compose
-sysext from the flatcar/sysext-bakery. `INSTALL.md` is the full walkthrough; `README.md` the overview.
+agent config, the hostname + mDNS config, the `xterm-kitty` terminfo, and two boot-time sysext
+download scripts (`install-traceway-sysext.sh` for this repo's agent image and
+`install-docker-compose-sysext.sh` for the flatcar/sysext-bakery docker-compose image).
+`INSTALL.md` is the full walkthrough; `README.md` the overview.
+
+mDNS / `hostname.local`: done natively via systemd-resolved, **not** avahi (avahi would need its
+own sysext; resolved already ships in Flatcar). Three pieces: `/etc/hostname` sets the name,
+`/etc/systemd/resolved.conf.d/10-mdns.conf` (`[Resolve] MulticastDNS=yes`) turns on the responder
+globally, and per-link `MulticastDNS=yes` enables it on each interface — wired via a
+`/etc/systemd/network/zz-default.network.d/10-mdns.conf` drop-in (zz-default.network is Flatcar's
+built-in catch-all DHCP unit; the drop-in adds mDNS without touching DHCP), Wi-Fi via the line in
+`25-wlan0.network`. `systemd-resolved.service` is declared `enabled: true` for good measure.
+
+kitty terminfo: Flatcar ships no `xterm-kitty` entry, so SSHing from kitty (which sets
+`TERM=xterm-kitty`) breaks curses apps. The compiled entry is embedded as a base64 `data:` URL at
+`/etc/terminfo/x/xterm-kitty` (`/usr` is read-only; `/etc/terminfo` is an ncurses search path).
+Regenerate with `base64 -w0 /usr/share/terminfo/x/xterm-kitty`. The CONFIGURE step count in the
+butane comments is now "of 4" (SSH, kernel args, Traceway creds, hostname).
 
 Arch gotcha: the `IMAGE=` line in the embedded `install-traceway-sysext.sh` must be
 `traceway-otel-agent-arm64` (the Pi is arm64) and the downloaded `.raw` filename must equal the
 image's extension-release name, or systemd-sysext silently refuses to merge it.
+
+Version-match gotcha (the silent-skip trap): the image's
+`usr/lib/extension-release.d/extension-release.<name>` must carry `ID=flatcar` **plus
+`SYSEXT_LEVEL=1.0`** (the bakery's approach), not `VERSION_ID=_any`. `_any` is a wildcard only for
+`ID=` — *not* for `VERSION_ID=`. With `ID=flatcar`, systemd compares `SYSEXT_LEVEL` against the
+host (or `VERSION_ID` if no `SYSEXT_LEVEL`); a literal `VERSION_ID=_any` never equals the host's
+real VERSION_ID, so systemd-sysext silently drops the image from the merge set. Symptom: the boot
+log shows the `.raw` "Installed", then `Unit traceway-otel-agent.service not found`
+(`status=5/NOTINSTALLED`), and the image is absent from the `(sd-merge) Using extensions '...'`
+line while the others merge. (This is *not* a compression issue — the Flatcar arm64 kernel has
+`CONFIG_SQUASHFS_XZ=y`, so `-comp xz` mounts fine.)
 
 ## How the sysext mechanism works (the non-obvious part)
 
@@ -50,7 +77,8 @@ pre-enabled systemd unit into the image:
 2. Lays out a `/usr` tree containing the binary, the `traceway-otel-agent.service` unit, **and a
    `multi-user.target.wants/` symlink** pointing at that unit.
 3. Writes `usr/lib/extension-release.d/extension-release.<name>` with `ARCHITECTURE=` matching the
-   Flatcar arch (mismatch → refuses to merge) and `VERSION_ID=_any`.
+   Flatcar arch (mismatch → refuses to merge), `ID=flatcar`, and `SYSEXT_LEVEL=1.0` (see the
+   version-match gotcha above — `VERSION_ID=_any` does *not* work, `_any` is an `ID=`-only wildcard).
 4. Packs it with `mksquashfs ... -comp xz` into `<name>.raw` + a `.sha256`, published as release assets.
 
 The baked-in `multi-user.target.wants` symlink is deliberate: a sysext image can't run
@@ -64,6 +92,42 @@ this repo's GitHub release, verifies sha256, drops it in `/etc/extensions/`, run
 refresh` → the bundled unit's symlink activates and the agent starts. A
 `/var/lib/traceway-otel-agent/.sysext-installed` stamp file (`ConditionPathExists=!`) makes the
 oneshot run only once.
+
+## No-RTC clock trap: Ignition must not fetch over HTTPS on a Pi
+
+The Raspberry Pi 4 has **no battery-backed RTC**. At Ignition time (initramfs,
+before NTP) systemd sets the clock to its own *build date* — a date in the past —
+so any HTTPS fetch fails TLS cert validation with `tls: failed to verify
+certificate` (GitHub's cert looks "not yet valid"). This is independent of the
+network: it fails on Ethernet too. See coreos/fedora-coreos-tracker#1323 / #1624.
+
+Consequence baked into this repo: **Ignition fetches nothing remote.** Both
+sysexts are pulled at *boot* (after timesyncd corrects the clock), each by its own
+oneshot:
+
+- `install-traceway-sysext.service` → `install-traceway-sysext.sh` (this repo's
+  release). Stamped via `/var/lib/traceway-otel-agent/.sysext-installed`.
+- `install-docker-compose-sysext.service` → `install-docker-compose-sysext.sh`
+  (Flatcar sysext-bakery `latest`). Idempotent via
+  `ConditionPathExists=!/etc/extensions/docker_compose.raw` (the downloaded file is
+  its own done-marker). Verifies against the bakery's single `SHA256SUMS`. The
+  destination must be named `docker_compose.raw` — that's the image's
+  extension-release name; mismatch → silent merge failure.
+
+Both units are ordered `After=network-online.target time-sync.target`. Do **not**
+"optimize" either fetch back into an Ignition `contents.source:` URL — it will
+break on every Pi.
+
+## Wi-Fi is steady-state only — first boot should use Ethernet
+
+The optional Wi-Fi blocks in `cfg/butane.yaml` configure Wi-Fi for the *booted*
+system, not for provisioning. WiFi is unavailable in the initramfs (no driver
+stack there; the `wpa_supplicant` config only activates once the real system
+boots), and the two boot-time sysext fetches race Wi-Fi association/DHCP — and
+need the clock synced, which needs network. So **first boot should be on
+Ethernet** (README, INSTALL §2d). After one successful boot the docker-compose
+`.raw` is on disk and the traceway sysext is stamped, so nothing re-downloads —
+the Pi then runs on Wi-Fi alone across reboots.
 
 ## Version coupling
 
