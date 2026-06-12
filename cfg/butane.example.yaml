@@ -12,7 +12,7 @@ version: 1.0.0
 #
 # ────────────────────────────────────────────────────────────────────────────
 
-# ── CONFIGURE 1 of 3: SSH access ────────────────────────────────────────────
+# ── CONFIGURE 1 of 4: SSH access ────────────────────────────────────────────
 # Replace the placeholder with your actual public key.
 # Get it with:  cat ~/.ssh/id_ed25519.pub   (or id_rsa.pub)
 passwd:
@@ -21,7 +21,7 @@ passwd:
       ssh_authorized_keys:
         - "ssh-ed25519 AAAAC3Nza... your-public-key-here"
 
-# ── CONFIGURE 2 of 3: Kernel args (required for Pi serial + autologin) ──────
+# ── CONFIGURE 2 of 4: Kernel args (required for Pi serial + autologin) ──────
 # These match what the Flatcar Pi docs require. Leave them as-is unless you
 # specifically don't want autologin on tty1.
 kernel_arguments:
@@ -40,12 +40,21 @@ storage:
     - path: /etc/extensions
 
   files:
-    # ── OPTIONAL: Wi-Fi ──────────────────────────────────────────────────────
-    # Skip this whole block if the Pi is on Ethernet. To use Wi-Fi instead,
-    # uncomment the two files below AND the wpa_supplicant unit at the bottom of
-    # this file, then fill in your SSID and passphrase. The Pi 4's onboard
-    # brcmfmac Wi-Fi shows up as wlan0; if `ip link` reports a different name on
-    # first boot, rename these files and the unit to match.
+    # ── OPTIONAL: Wi-Fi (STEADY-STATE ONLY — first boot must use Ethernet) ───
+    # ⚠️ Wi-Fi cannot be used for provisioning or first boot. Ignition runs in
+    # the initramfs, which only brings up *wired* interfaces via DHCP (no Wi-Fi
+    # driver stack); the wpa_supplicant config below only takes effect once the
+    # booted system is up. The docker-compose sysext (fetched by Ignition) and
+    # the first-boot traceway sysext download both happen before Wi-Fi
+    # associates. So: PLUG IN ETHERNET FOR THE FIRST BOOT. After one successful
+    # boot the sysexts are on disk + stamped and never re-download, so the Pi
+    # then runs on Wi-Fi alone across reboots. See INSTALL.md §2d.
+    #
+    # Skip this whole block if the Pi stays on Ethernet. To use Wi-Fi for
+    # steady-state, uncomment the two files below AND the wpa_supplicant unit at
+    # the bottom of this file, then fill in your SSID and passphrase. The Pi 4's
+    # onboard brcmfmac Wi-Fi shows up as wlan0; if `ip link` reports a different
+    # name on first boot, rename these files and the unit to match.
     #
     # - path: /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
     #   mode: 0600
@@ -68,14 +77,33 @@ storage:
     #
     #       [Network]
     #       DHCP=yes
+    #       MulticastDNS=yes      # so <hostname>.local works over Wi-Fi too
+
+    # ── kitty terminfo (xterm-kitty) ─────────────────────────────────────────
+    # Flatcar ships no xterm-kitty terminfo entry, so SSHing in from the kitty
+    # terminal (which sets TERM=xterm-kitty) breaks clear/less/vim with
+    # "terminal not fully functional" / "unknown terminal type". This drops the
+    # compiled terminfo into /etc/terminfo (an ncurses search path; /usr is
+    # read-only) so the entry resolves. The base64 below is the upstream
+    # xterm-kitty entry (sha256 d26fac9b51b83e41bfb3acdf6ea1d44e079983d00a19350ec8829b4b84f76bf4);
+    # regenerate with: base64 -w0 /usr/share/terminfo/x/xterm-kitty
+    #
+    # Alternatively, skip this and connect with `kitten ssh <host>`, which copies
+    # the terminfo over automatically — but a plain `ssh` needs this file.
+    - path: /etc/terminfo/x/xterm-kitty
+      mode: 0644
+      contents:
+        source: "data:;base64,GgEVABwADwBpAb0FeHRlcm0ta2l0dHl8S292SWRUVFkAAQEAAAEAAAABAQAAAAEBAAAAAAAAAAEAAAEAAQBQAAgAGAD//////////////////////////wAB/38AAAQABgAIABkAHgAmACoALgD//zkASgBMAFAAVwD//1kAZgD//2oAbgB4AHwAgAD//4cAiwCQAJUA//+eAKMA/////6gArQCyALcAwADEAMsA///UANkA3wDlAP//9wD/////////////+QD///0A/////////wD//wQB//////////8IAQwBEgEWARoBHgEkASoBMAE2ATwBQAH//0UB//9JAU4BUwFXAV4B//9lAWkBbwH///////////////////////////////////////91AX4BhwGQAZkBogGrAbQBvQHGAf///////////////88B4wH////////qAe0B+AH7Af0BAAJdAv//YAJiAv//////////////////////////ZwL//6gC/////6wCsgL/////////////uAL/////////////vAL////////////////////////////////////////////////////////AAv//////////xwL/////zgL//////////9UC3ALjAv/////qAv//8QL////////4Av//////////////AgUDCwMSAxkDIQMoAzADOANAA0gDUANYA2ADaANvA3YDfgOFA40DlQOdA6UDrQO1A70DxQPMA9MD2wPiA+oD8gP6AwIECgQSBBoEIgQpBDAEOAQ/BEcETwRXBF8EZwRvBHcEfwSGBI0ElQT/////////////////////////////////////////////////////////////mgSlBKoEvQTBBMoE0QT/////////////////////////////LwX///////////////////////80Bf///////////////////////////////////////////////////////////////////////////////////////zoF////////PgV9BRtbWgAHAA0AG1slaSVwMSVkOyVwMiVkcgAbWzNnABtbSBtbMkoAG1tLABtbSgAbWyVpJXAxJWRHABtbJWklcDElZDslcDIlZEgACgAbW0gAG1s/MjVs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"
 
     # ── docker-compose sysext (from the Flatcar sysext-bakery) ───────────────
-    # Downloaded by Ignition on first boot; the link below activates it.
-    - path: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
-      contents:
-        source: https://github.com/flatcar/sysext-bakery/releases/download/latest/docker-compose-5.1.4-arm64.raw
+    # NOT fetched by Ignition. The Pi 4 has no RTC, so at Ignition time (in the
+    # initramfs, before NTP) the clock is set to systemd's build date — a date
+    # in the past — and GitHub's TLS cert looks "not yet valid", so an Ignition
+    # `source:` HTTPS fetch dies with "tls: failed to verify certificate".
+    # Instead it is downloaded at boot, after the clock syncs, by
+    # install-docker-compose-sysext.service (see the script + unit below).
 
-    # ── CONFIGURE 3 of 3: Traceway credentials ──────────────────────────────
+    # ── CONFIGURE 3 of 4: Traceway credentials ──────────────────────────────
     - path: /etc/traceway-otel-agent/token
       mode: 0600
       contents:
@@ -138,6 +166,37 @@ storage:
                 processors: [memory_limiter, resourcedetection, batch]
                 exporters: [otlphttp]
 
+    # ── CONFIGURE 4 of 4: Hostname (this is also the mDNS .local name) ───────
+    # The node's hostname — and what it answers to over mDNS, so once booted you
+    # can reach it as <hostname>.local (e.g. ssh core@flatcar-pi.local) from any
+    # machine on the LAN. That's the "avahi magic", but done natively by
+    # systemd-resolved, which Flatcar already ships — no avahi package or extra
+    # sysext required. Change the name below to whatever you want this Pi called.
+    - path: /etc/hostname
+      mode: 0644
+      contents:
+        inline: flatcar-pi
+
+    # ── mDNS responder (powers the <hostname>.local resolution above) ────────
+    # 1. Turn on systemd-resolved's multicast-DNS responder + resolver globally.
+    - path: /etc/systemd/resolved.conf.d/10-mdns.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Resolve]
+          MulticastDNS=yes
+    # 2. Switch mDNS on for the wired link. zz-default.network is Flatcar's
+    #    built-in catch-all DHCP unit for ethernet; this drop-in only adds the
+    #    mDNS flag and leaves its DHCP behaviour untouched. (Wi-Fi carries the
+    #    same MulticastDNS=yes line in its 25-wlan0.network block above, once
+    #    you uncomment it.)
+    - path: /etc/systemd/network/zz-default.network.d/10-mdns.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Network]
+          MulticastDNS=yes
+
     # ── Sysext download script ───────────────────────────────────────────────
     - path: /opt/bin/install-traceway-sysext.sh
       mode: 0755
@@ -147,8 +206,8 @@ storage:
           set -euo pipefail
 
           # ── Update these when you cut a new sysext release ────────────────
-          GITHUB_REPO="YOUR_GITHUB_USERNAME/traceway-sysext"
-          SYSEXT_TAG="v0.5.0"
+          GITHUB_REPO="Liriel/"
+          SYSEXT_TAG="v0.0.1"
           # ──────────────────────────────────────────────────────────────────
 
           # Raspberry Pi 4 runs arm64-usr Flatcar, so we pull the arm64 image.
@@ -179,14 +238,62 @@ storage:
           systemctl daemon-reload
           systemctl start traceway-otel-agent.service
 
-  links:
-    # Activate the docker-compose sysext by linking it into /etc/extensions.
-    - target: /opt/extensions/docker_compose/docker-compose-5.1.4-arm64.raw
-      path: /etc/extensions/docker_compose.raw
-      hard: false
+    # ── docker-compose sysext download script (runs at boot, not in Ignition) ─
+    - path: /opt/bin/install-docker-compose-sysext.sh
+      mode: 0755
+      contents:
+        inline: |
+          #!/bin/bash
+          set -euo pipefail
+
+          # docker-compose sysext from the Flatcar sysext-bakery. Pulled at boot
+          # (after the clock syncs) rather than by Ignition — see the note in the
+          # storage section. The asset must exist in the bakery's rolling
+          # "latest" release; bump COMPOSE_VERSION if it's pruned:
+          #   https://github.com/flatcar/sysext-bakery/releases/tag/latest
+          COMPOSE_VERSION="2.24.5"
+          ARCH="arm64"   # Raspberry Pi 4 runs arm64-usr Flatcar
+
+          # The destination filename's name part (docker_compose) MUST match the
+          # image's extension-release name, or systemd-sysext silently refuses to
+          # merge it. The bakery's image is ARCHITECTURE=arm64 — matches the Pi.
+          IMAGE="docker_compose"
+          ASSET="${IMAGE}-${COMPOSE_VERSION}-${ARCH}.raw"
+          DEST="/etc/extensions/${IMAGE}.raw"
+          BASE="https://github.com/flatcar/sysext-bakery/releases/download/latest"
+
+          echo "Downloading ${ASSET}..."
+          curl -fsSL "${BASE}/${ASSET}"     -o "${DEST}.tmp"
+          # The bakery ships one SHA256SUMS for the whole release (no per-asset file).
+          curl -fsSL "${BASE}/SHA256SUMS"   -o "${DEST}.sums"
+
+          expected=$(awk -v f="${ASSET}" '$2 == f {print $1}' "${DEST}.sums")
+          actual=$(sha256sum "${DEST}.tmp" | awk '{print $1}')
+          if [ -z "${expected}" ]; then
+            echo "No checksum for ${ASSET} in SHA256SUMS" >&2
+            rm -f "${DEST}.tmp" "${DEST}.sums"
+            exit 1
+          fi
+          if [ "${expected}" != "${actual}" ]; then
+            echo "Checksum mismatch! expected=${expected} got=${actual}" >&2
+            rm -f "${DEST}.tmp" "${DEST}.sums"
+            exit 1
+          fi
+
+          rm -f "${DEST}.sums"
+          mv "${DEST}.tmp" "${DEST}"
+          echo "Installed ${DEST}"
+          systemd-sysext refresh
 
 systemd:
   units:
+    # systemd-resolved runs the mDNS responder/resolver that makes
+    # <hostname>.local work (see /etc/systemd/resolved.conf.d/10-mdns.conf above).
+    # It's the native, avahi-free way to get hostname.local on Flatcar. Usually
+    # already enabled by default; declared here so it's on regardless.
+    - name: systemd-resolved.service
+      enabled: true
+
     - name: install-traceway-sysext.service
       enabled: true
       contents: |
@@ -201,6 +308,61 @@ systemd:
         RemainAfterExit=yes
         ExecStart=/opt/bin/install-traceway-sysext.sh
         ExecStartPost=/bin/touch /var/lib/traceway-otel-agent/.sysext-installed
+
+        [Install]
+        WantedBy=multi-user.target
+
+    - name: install-docker-compose-sysext.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Download and install the docker-compose sysext image
+        # time-sync.target: the Pi has no RTC, so wait for the clock to be set
+        # before any HTTPS fetch, or TLS cert verification fails (see storage note).
+        After=network-online.target time-sync.target
+        Wants=network-online.target
+        # The downloaded image is its own "done" marker — skip if already present.
+        # To force a re-download: rm /etc/extensions/docker_compose.raw && start this unit.
+        ConditionPathExists=!/etc/extensions/docker_compose.raw
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/opt/bin/install-docker-compose-sysext.sh
+
+        [Install]
+        WantedBy=multi-user.target
+
+    # ── Swap file (4 GB on /var) ─────────────────────────────────────────────
+    # create-swapfile runs once (guarded by ConditionPathExists) to allocate,
+    # set permissions, and format the file; var-swapfile.swap activates it.
+    - name: create-swapfile.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Create 4 GB swap file at /var/swapfile
+        ConditionPathExists=!/var/swapfile
+        DefaultDependencies=no
+        Before=var-swapfile.swap
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/bin/dd if=/dev/zero of=/var/swapfile bs=1M count=4096
+        ExecStart=/usr/bin/chmod 0600 /var/swapfile
+        ExecStart=/usr/sbin/mkswap /var/swapfile
+
+        [Install]
+        WantedBy=var-swapfile.swap
+
+    - name: var-swapfile.swap
+      enabled: true
+      contents: |
+        [Unit]
+        Description=4 GB swap file
+        After=create-swapfile.service
+
+        [Swap]
+        What=/var/swapfile
 
         [Install]
         WantedBy=multi-user.target
