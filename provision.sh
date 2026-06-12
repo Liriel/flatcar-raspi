@@ -88,16 +88,29 @@ fi
 
 # ── Step 1: Write Flatcar to the device ─────────────────────────────────────
 
+FLATCAR_IMAGE="${SCRIPT_DIR}/flatcar-install/flatcar_production_image.bin.bz2"
+
+if [[ -f "${FLATCAR_IMAGE}" ]]; then
+  echo ""
+  echo "► Using cached Flatcar image (delete to force re-download):"
+  echo "    ${FLATCAR_IMAGE}"
+else
+  echo ""
+  echo "► Downloading Flatcar arm64 stable image ..."
+  echo "  (This downloads ~400 MB and may take a few minutes)"
+  echo ""
+  pushd "${SCRIPT_DIR}/flatcar-install" > /dev/null
+  "${INSTALLER}" -D -C stable -B arm64-usr -o ''
+  popd > /dev/null
+fi
+
 echo ""
-echo "► Writing Flatcar arm64 stable to ${DEVICE} ..."
-echo "  (This downloads ~400 MB and may take a few minutes)"
+echo "► Writing Flatcar to ${DEVICE} ..."
 echo ""
 
 "${INSTALLER}" \
+  -f "${FLATCAR_IMAGE}" \
   -d "${DEVICE}" \
-  -C stable \
-  -B arm64-usr \
-  -o '' \
   -i "${IGNITION_CONFIG}"
 
 echo ""

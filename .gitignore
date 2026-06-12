@@ -9,3 +9,6 @@ cfg/ignition.json
 
 # The flatcar-install script is fetched on demand (make fetch-installer)
 flatcar-install/flatcar-install
+# Cached Flatcar image (downloaded on first provision, reused on subsequent runs)
+flatcar-install/*.bz2
+flatcar-install/*.sig
